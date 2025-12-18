@@ -248,7 +248,7 @@ class X1EcoChainBot:
         payload = {"signature": signature}
         headers = self.get_session_headers()
         
-        async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=headers) as response:
                 data = await response.json()
                 
