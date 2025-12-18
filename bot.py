@@ -8,6 +8,7 @@ import sys
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from eth_account import Account
+from eth_account.messages import encode_defunct
 from web3 import Web3
 from colorama import init, Fore, Style
 from pyfiglet import Figlet
@@ -110,6 +111,12 @@ def print_profile_info(address, points, rank, balance, context):
     print_info('X1T Balance', str(balance), context)
     print("\n")
 
+def mask_address(address):
+    """Mask wallet address for display"""
+    if not address:
+        return 'N/A'
+    return f"{address[:6]}{'*' * 6}{address[-6:]}"
+
 class X1EcoChainBot:
     def __init__(self):
         self.user_agent = UserAgent()
@@ -210,12 +217,6 @@ class X1EcoChainBot:
             Logger.warn('proxy.txt not found.', {"emoji": "⚠️ "})
             return []
 
-    def mask_address(self, address):
-        """Mask wallet address for display"""
-        if not address:
-            return 'N/A'
-        return f"{address[:6]}{'*' * 6}{address[-6:]}"
-
     def derive_wallet_address(self, private_key):
         """Derive wallet address from private key"""
         try:
@@ -227,41 +228,37 @@ class X1EcoChainBot:
 
     async def sign_message_and_login(self, private_key, address, proxy, context):
         """Sign message and login to get token"""
-    url = 'https://tapi.kod.af/signin'
-    message = 'X1 Testnet Auth'
-    
-    Logger.info('Signing and logging in...', {"emoji": "🔐", "context": context})
-    
-    try:
-        # Sign message using eth_account directly (more reliable)
-        from eth_account.messages import encode_defunct
-        import eth_account
+        url = 'https://tapi.kod.af/signin'
+        message = 'X1 Testnet Auth'
         
-        # Create account from private key
-        account = eth_account.Account.from_key(private_key)
+        Logger.info('Signing and logging in...', {"emoji": "🔐", "context": context})
         
-        # Sign the message
-        message_encoded = encode_defunct(text=message)
-        signed_message = account.sign_message(message_encoded)
-        signature = signed_message.signature.hex()
-        
-        payload = {"signature": signature}
-        headers = self.get_session_headers()
-        
-    async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers) as response:
-                data = await response.json()
-                
-                if response.status == 200 and data.get('token'):
-                    Logger.info(f"Login successful", {"emoji": "✅", "context": context})
-                    return data['token']
-                else:
-                    error_msg = data.get('message', str(data))
-                    raise ValueError(f"Login failed: {error_msg}")
+        try:
+            # Sign message using eth_account directly
+            account = Account.from_key(private_key)
+            
+            # Sign the message
+            message_encoded = encode_defunct(text=message)
+            signed_message = account.sign_message(message_encoded)
+            signature = signed_message.signature.hex()
+            
+            payload = {"signature": signature}
+            headers = self.get_session_headers()
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers, timeout=30) as response:
+                    data = await response.json()
                     
-    except Exception as error:
-        Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
-        return None
+                    if response.status == 200 and data.get('token'):
+                        Logger.info(f"Login successful", {"emoji": "✅", "context": context})
+                        return data['token']
+                    else:
+                        error_msg = data.get('message', str(data))
+                        raise ValueError(f"Login failed: {error_msg}")
+                        
+        except Exception as error:
+            Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
+            return None
 
     async def get_quests(self, token, context):
         """Get available quests"""
@@ -272,7 +269,7 @@ class X1EcoChainBot:
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
+                async with session.get(url, headers=headers, timeout=30) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data
@@ -292,7 +289,7 @@ class X1EcoChainBot:
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, headers=headers) as response:
+                async with session.post(url, headers=headers, timeout=30) as response:
                     data = await response.json()
                     
                     if response.status == 400 or not data.get('message', '').lower().count('success'):
@@ -317,7 +314,7 @@ class X1EcoChainBot:
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
+                async with session.get(url, timeout=30) as response:
                     if response.status == 200:
                         data = await response.text()
                         if data == 'ok':
@@ -340,10 +337,10 @@ class X1EcoChainBot:
         
         try:
             w3 = Web3(Web3.HTTPProvider(rpc_url))
-            account = w3.eth.account.from_key(private_key)
+            account = Account.from_key(private_key)
             
             # Generate random address
-            random_account = w3.eth.account.create()
+            random_account = Account.create()
             random_address = random_account.address
             
             # Random amount between 0.1 and 0.5
@@ -352,11 +349,11 @@ class X1EcoChainBot:
             # Convert to wei
             value = w3.to_wei(amount, 'ether')
             
-            Logger.info(f"Sending {amount:.6f} X1T to {self.mask_address(random_address)}...", 
+            Logger.info(f"Sending {amount:.6f} X1T to {mask_address(random_address)}...", 
                        {"emoji": "📤", "context": context})
             
             # Build transaction
-            nonce = w3.eth.get_transaction_count(address)
+            nonce = w3.eth.get_transaction_count(account.address)
             gas_price = w3.eth.gas_price
             
             tx = {
@@ -369,7 +366,7 @@ class X1EcoChainBot:
             }
             
             # Sign and send transaction
-            signed_tx = w3.eth.account.sign_transaction(tx, private_key)
+            signed_tx = account.sign_transaction(tx)
             tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
             
             # Wait for transaction receipt
@@ -395,14 +392,14 @@ class X1EcoChainBot:
         
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
+                async with session.get(url, headers=headers, timeout=30) as response:
                     if response.status == 200:
                         data = await response.json()
                         
                         # Get balance from blockchain
                         rpc_url = 'https://maculatus-rpc.x1eco.com'
                         w3 = Web3(Web3.HTTPProvider(rpc_url))
-                        account = w3.eth.account.from_key(private_key)
+                        account = Account.from_key(private_key)
                         balance_wei = w3.eth.get_balance(account.address)
                         balance = w3.from_wei(balance_wei, 'ether')
                         
@@ -424,7 +421,7 @@ class X1EcoChainBot:
         """Get public IP address"""
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get('https://api.ipify.org?format=json') as response:
+                async with session.get('https://api.ipify.org?format=json', timeout=10) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data.get('ip', 'Unknown')
@@ -450,7 +447,7 @@ class X1EcoChainBot:
         
         # Print account info
         print_header(f"Account Info {context}")
-        print_info('Masked Address', self.mask_address(address), context)
+        print_info('Masked Address', mask_address(address), context)
         
         ip = await self.get_public_ip(context)
         print_info('IP', ip, context)
@@ -594,11 +591,17 @@ class X1EcoChainBot:
         terminal_width = 80
         
         # Create ASCII art banner
-        ascii_art = text2art("ADB NODE", font="block")
-        print(f"{Fore.CYAN}{ascii_art}{Style.RESET_ALL}")
+        try:
+            ascii_art = text2art("NT EXHAUST", font="block")
+            print(f"{Fore.CYAN}{ascii_art}{Style.RESET_ALL}")
+        except:
+            # Fallback if text2art fails
+            print(f"{Fore.CYAN}{'=' * 80}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}{'NT EXHAUST'.center(80)}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}{'=' * 80}{Style.RESET_ALL}")
         
         # Print channel info
-        channel_line = "=== Telegram Channel 🚀 : ADB NODE (@airdropbomb) ==="
+        channel_line = "=== Telegram Channel 🚀 : NT Exhaust (@NTExhaust) ==="
         print(f"{Fore.MAGENTA}{center_text(channel_line, terminal_width)}{Style.RESET_ALL}")
         
         # Print bot info
@@ -627,8 +630,10 @@ async def main():
         await bot.run()
     except KeyboardInterrupt:
         Logger.info("Bot stopped by user", {"emoji": "👋"})
+        sys.exit(0)
     except Exception as error:
         Logger.error(f"Fatal error: {error}", {"emoji": "❌"})
+        sys.exit(1)
 
 if __name__ == "__main__":
     # Check required packages
