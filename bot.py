@@ -227,48 +227,47 @@ class X1EcoChainBot:
             return None
 
     async def sign_message_and_login(self, private_key, address, proxy, context):
-        """Sign message and login to get token - FIXED VERSION"""
-        url = 'https://tapi.kod.af/signin'
-        message = 'X1 Testnet Auth'
+        """Sign message exactly like ethers.js wallet.signMessage(string)"""
+    url = 'https://tapi.kod.af/signin'
+    message = 'X1 Testnet Auth'  # string အတိုင်း ထားရမယ်
+    
+    Logger.info('Signing and logging in...', {"emoji": "🔐", "context": context})
+    
+    try:
+        # ethers.js နဲ့ အတိအကျ တူအောင် sign လုပ်နည်း
+        # encode_defunct(text=...) က \x19Ethereum Signed Message:\n<len> prefix ထည့်ပေးတယ်
+        message_hash = encode_defunct(text=message)
         
-        Logger.info('Signing and logging in...', {"emoji": "🔐", "context": context})
+        # Account.from_key နဲ့ instance ဖန်တီးပြီး sign_message ခေါ် (ethers.js နဲ့ အတူတူ)
+        account = Account.from_key(private_key)
+        signed_message = account.sign_message(message_hash)
+        signature = signed_message.signature.hex()
         
-        try:
-            # Encode message for personal_sign (EIP-191) - same as ethers.js signMessage
-            message_hash = encode_defunct(text=message)
-            
-            # Create account and sign
-            account = Account.from_key(private_key)
-            signed_message = account.sign_message(message_hash)
-            signature = signed_message.signature.hex()
-            
-            # Verify signature locally (using static method)
-            recovered_address = Account.recover_message(message_hash, signature=signed_message.signature)
-            
-            Logger.debug(f"Recovered address: {recovered_address}", {"context": context})
-            Logger.debug(f"Expected address : {account.address}", {"context": context})
-            
-            if recovered_address.lower() != account.address.lower():
-                raise ValueError("Local signature verification failed!")
-            
-            # Send to server
-            payload = {"signature": signature}
-            headers = self.get_session_headers()
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=30) as response:
-                    data = await response.json()
-                    
-                    if response.status == 200 and data.get('token'):
-                        Logger.info("Login successful", {"emoji": "✅", "context": context})
-                        return data['token']
-                    else:
-                        error_msg = data.get('error', data.get('message', str(data)))
-                        raise ValueError(f"Login failed: {error_msg}")
+        # Local verify (debug အတွက်)
+        recovered_address = Account.recover_message(message_hash, signature=signed_message.signature)
+        Logger.debug(f"Recovered address: {recovered_address.lower()}", {"context": context})
+        Logger.debug(f"Expected address : {address.lower()}", {"context": context})
+        
+        if recovered_address.lower() != address.lower():
+            raise ValueError("Local signature verification failed!")
+        
+        payload = {"signature": signature}
+        headers = self.get_session_headers()
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
+                data = await response.json()
+                
+                if response.status == 200 and data.get('token'):
+                    Logger.info("Login successful!", {"emoji": "✅", "context": context})
+                    return data['token']
+                else:
+                    error_msg = data.get('error', data.get('message', str(data)))
+                    raise ValueError(f"Login failed: {error_msg}")
                         
-        except Exception as error:
-            Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
-            return None
+    except Exception as error:
+        Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
+        return None
 
     async def get_quests(self, token, context):
         """Get available quests"""
