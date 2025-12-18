@@ -227,38 +227,72 @@ class X1EcoChainBot:
             return None
 
     async def sign_message_and_login(self, private_key, address, proxy, context):
-        """Sign message and login to get token"""
-        url = 'https://tapi.kod.af/signin'
-        message = 'X1 Testnet Auth'
+        """Sign message and login to get token - Working version"""
+    url = 'https://tapi.kod.af/signin'
+    message = 'X1 Testnet Auth'
+    
+    Logger.info('Signing and logging in...', {"emoji": "🔐", "context": context})
+    
+    try:
+        # Use web3.py to sign message exactly like ethers.js
+        from web3 import Web3
+        from eth_account.messages import encode_defunct
+        import eth_account
         
-        Logger.info('Signing and logging in...', {"emoji": "🔐", "context": context})
+        # Create account
+        account = eth_account.Account.from_key(private_key)
         
-        try:
-            # Sign message using eth_account directly
-            account = Account.from_key(private_key)
-            
-            # Sign the message
-            message_encoded = encode_defunct(text=message)
-            signed_message = account.sign_message(message_encoded)
-            signature = signed_message.signature.hex()
-            
-            payload = {"signature": signature}
-            headers = self.get_session_headers()
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers, timeout=30) as response:
-                    data = await response.json()
-                    
-                    if response.status == 200 and data.get('token'):
-                        Logger.info(f"Login successful", {"emoji": "✅", "context": context})
-                        return data['token']
-                    else:
-                        error_msg = data.get('message', str(data))
-                        raise ValueError(f"Login failed: {error_msg}")
+        # Encode message for personal_sign (EIP-191)
+        # This is what ethers.js signMessage() uses
+        message_hash = encode_defunct(text=message)
+        
+        # Sign the message
+        signed_message = account.sign_message(message_hash)
+        
+        # Get the signature
+        signature = signed_message.signature.hex()
+        
+        # Verify the signature matches the address (for debugging)
+        recovered_address = account.recover_message(message_hash, signature=signed_message.signature)
+        Logger.debug(f"Recovered address: {recovered_address}", {"context": context})
+        Logger.debug(f"Expected address: {account.address}", {"context": context})
+        
+        # Prepare payload
+        payload = {"signature": signature}
+        headers = self.get_session_headers()
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
+                data = await response.json()
+                
+                if response.status == 200 and data.get('token'):
+                    Logger.info(f"Login successful", {"emoji": "✅", "context": context})
+                    return data['token']
+                else:
+                    # Try alternative: sign with web3.eth.account.sign_message
+                    try:
+                        w3 = Web3()
+                        signed = w3.eth.account.sign_message(
+                            {"message": message},
+                            private_key
+                        )
+                        alt_signature = signed.signature.hex()
                         
-        except Exception as error:
-            Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
-            return None
+                        # Try with alternative signature
+                        async with session.post(url, json={"signature": alt_signature}, headers=headers, timeout=10) as alt_response:
+                            alt_data = await alt_response.json()
+                            if alt_response.status == 200 and alt_data.get('token'):
+                                Logger.info(f"Login successful with web3 sign", {"emoji": "✅", "context": context})
+                                return alt_data['token']
+                    except:
+                        pass
+                    
+                    error_msg = data.get('error', data.get('message', str(data)))
+                    raise ValueError(f"Login failed: {error_msg}")
+                        
+    except Exception as error:
+        Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
+        return None
 
     async def get_quests(self, token, context):
         """Get available quests"""
