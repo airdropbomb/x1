@@ -227,34 +227,41 @@ class X1EcoChainBot:
 
     async def sign_message_and_login(self, private_key, address, proxy, context):
         """Sign message and login to get token"""
-        url = 'https://tapi.kod.af/signin'
-        message = 'X1 Testnet Auth'
+    url = 'https://tapi.kod.af/signin'
+    message = 'X1 Testnet Auth'
+    
+    Logger.info('Signing and logging in...', {"emoji": "🔐", "context": context})
+    
+    try:
+        # Sign message using eth_account directly (more reliable)
+        from eth_account.messages import encode_defunct
+        import eth_account
         
-        Logger.info('Signing and logging in...', {"emoji": "🔐 ", "context": context})
+        # Create account from private key
+        account = eth_account.Account.from_key(private_key)
         
-        try:
-            # Sign message using web3
-            w3 = Web3()
-            account = w3.eth.account.from_key(private_key)
-            message_hash = w3.eth.account.messages.encode_defunct(text=message)
-            signature = w3.eth.account.sign_message(message_hash, private_key=private_key).signature.hex()
-            
-            payload = {"signature": signature}
-            headers = self.get_session_headers()
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers) as response:
-                    data = await response.json()
+        # Sign the message
+        message_encoded = encode_defunct(text=message)
+        signed_message = account.sign_message(message_encoded)
+        signature = signed_message.signature.hex()
+        
+        payload = {"signature": signature}
+        headers = self.get_session_headers()
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as response:
+                data = await response.json()
+                
+                if response.status == 200 and data.get('token'):
+                    Logger.info(f"Login successful", {"emoji": "✅", "context": context})
+                    return data['token']
+                else:
+                    error_msg = data.get('message', str(data))
+                    raise ValueError(f"Login failed: {error_msg}")
                     
-                    if response.status == 200 and data.get('token'):
-                        Logger.info(f"Login successful", {"emoji": "✅", "context": context})
-                        return data['token']
-                    else:
-                        raise ValueError(f"Login failed: {data}")
-                        
-        except Exception as error:
-            Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
-            return None
+    except Exception as error:
+        Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
+        return None
 
     async def get_quests(self, token, context):
         """Get available quests"""
