@@ -227,37 +227,31 @@ class X1EcoChainBot:
             return None
 
     async def sign_message_and_login(self, private_key, address, proxy, context):
-        """Sign message and login to get token - Working version"""
+        """Sign message and login to get token - FIXED VERSION"""
         url = 'https://tapi.kod.af/signin'
         message = 'X1 Testnet Auth'
         
         Logger.info('Signing and logging in...', {"emoji": "🔐", "context": context})
         
         try:
-            # Use web3.py to sign message exactly like ethers.js
-            from web3 import Web3
-            from eth_account.messages import encode_defunct
-            import eth_account
-            
-            # Create account
-            account = eth_account.Account.from_key(private_key)
-            
-            # Encode message for personal_sign (EIP-191)
-            # This is what ethers.js signMessage() uses
+            # Encode message for personal_sign (EIP-191) - same as ethers.js signMessage
             message_hash = encode_defunct(text=message)
             
-            # Sign the message
+            # Create account and sign
+            account = Account.from_key(private_key)
             signed_message = account.sign_message(message_hash)
-            
-            # Get the signature
             signature = signed_message.signature.hex()
             
-            # Verify the signature matches the address (for debugging)
-            recovered_address = account.recover_message(message_hash, signature=signed_message.signature)
-            Logger.debug(f"Recovered address: {recovered_address}", {"context": context})
-            Logger.debug(f"Expected address: {account.address}", {"context": context})
+            # Verify signature locally (using static method)
+            recovered_address = Account.recover_message(message_hash, signature=signed_message.signature)
             
-            # Prepare payload
+            Logger.debug(f"Recovered address: {recovered_address}", {"context": context})
+            Logger.debug(f"Expected address : {account.address}", {"context": context})
+            
+            if recovered_address.lower() != account.address.lower():
+                raise ValueError("Local signature verification failed!")
+            
+            # Send to server
             payload = {"signature": signature}
             headers = self.get_session_headers()
             
@@ -266,30 +260,12 @@ class X1EcoChainBot:
                     data = await response.json()
                     
                     if response.status == 200 and data.get('token'):
-                        Logger.info(f"Login successful", {"emoji": "✅", "context": context})
+                        Logger.info("Login successful", {"emoji": "✅", "context": context})
                         return data['token']
                     else:
-                        # Try alternative: sign with web3.eth.account.sign_message
-                        try:
-                            w3 = Web3()
-                            signed = w3.eth.account.sign_message(
-                                {"message": message},
-                                private_key
-                            )
-                            alt_signature = signed.signature.hex()
-                            
-                            # Try with alternative signature
-                            async with session.post(url, json={"signature": alt_signature}, headers=headers, timeout=10) as alt_response:
-                                alt_data = await alt_response.json()
-                                if alt_response.status == 200 and alt_data.get('token'):
-                                    Logger.info(f"Login successful with web3 sign", {"emoji": "✅", "context": context})
-                                    return alt_data['token']
-                        except:
-                            pass
-                        
                         error_msg = data.get('error', data.get('message', str(data)))
                         raise ValueError(f"Login failed: {error_msg}")
-                            
+                        
         except Exception as error:
             Logger.error(f"Failed to sign and login: {error}", {"emoji": "❌", "context": context})
             return None
@@ -624,37 +600,28 @@ class X1EcoChainBot:
         # Display banner
         terminal_width = 80
         
-        # Create ASCII art banner
         try:
             ascii_art = text2art("NT EXHAUST", font="block")
             print(f"{Fore.CYAN}{ascii_art}{Style.RESET_ALL}")
         except:
-            # Fallback if text2art fails
             print(f"{Fore.CYAN}{'=' * 80}{Style.RESET_ALL}")
             print(f"{Fore.CYAN}{'NT EXHAUST'.center(80)}{Style.RESET_ALL}")
             print(f"{Fore.CYAN}{'=' * 80}{Style.RESET_ALL}")
         
-        # Print channel info
         channel_line = "=== Telegram Channel 🚀 : NT Exhaust (@NTExhaust) ==="
         print(f"{Fore.MAGENTA}{center_text(channel_line, terminal_width)}{Style.RESET_ALL}")
         
-        # Print bot info
         bot_line = "✪ BOT X1 EcoCHAIN AUTO DAILY ✪"
         print(f"{Fore.MAGENTA}{center_text(bot_line, terminal_width)}{Style.RESET_ALL}")
         print("\n")
         
-        # Initialize configuration
         await self.initialize_config()
         
-        # Main loop
         while True:
             await self.run_cycle()
             print()
             Logger.info('Cycle completed. Waiting 24 hours...', {"emoji": "🔄"})
-            
-            # Wait 24 hours (86400 seconds)
-            # For testing, you can reduce this to a shorter time
-            await delay(86400)
+            await delay(86400)  # 24 hours
 
 async def main():
     """Main entry point"""
@@ -670,7 +637,6 @@ async def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    # Check required packages
     required_packages = [
         'aiohttp', 'web3', 'colorama', 'pyfiglet', 'art', 
         'fake_useragent', 'eth_account'
@@ -688,5 +654,4 @@ if __name__ == "__main__":
             print(f"{Fore.RED}Installing {package}...{Style.RESET_ALL}")
             subprocess.check_call([sys.executable, "-m", "pip", "install", package])
     
-    # Run the bot
     asyncio.run(main())
