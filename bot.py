@@ -408,7 +408,7 @@ class X1EcoChainBot:
             
             if receipt.status == 1:
                 Logger.info(f"TX sent successfully! Hash: {tx_hash.hex()}", 
-                           {"emoji": "✅", "context": context}")
+                           {"emoji": "✅", "context": context})
                 return {"success": True}
             else:
                 raise ValueError("TX failed")
