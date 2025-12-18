@@ -261,9 +261,9 @@ class X1EcoChainBot:
         payload = {"signature": signature}
         headers = self.get_session_headers()
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers, timeout=30) as response:
-                data = await response.json()
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload, headers=headers, timeout=30) as response:
+            data = await response.json()
                 
                 if response.status == 200 and data.get('token'):
                     Logger.info(f"Login successful", {"emoji": "✅", "context": context})
